@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Ultimate Sanitization Version)
+name: Auto Cleanup Old Deployments (Final Tool Version with xargs)
 
 on:
   workflow_run:
@@ -26,11 +26,11 @@ jobs:
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # 解析图形化表格，提取ID
+          # 解析命令保持不变，它能正确地从表格中提取干净的ID列表
           DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | grep '^│' | awk '{print $2}')
 
           if [ -z "$DEPLOY_IDS" ]; then
-            echo "No deployments found or failed to fetch list. Exiting."
+            echo "No deployments found. Exiting."
             exit 0
           fi
           
@@ -41,25 +41,11 @@ jobs:
           fi
 
           OLD_IDS=$(echo "$DEPLOY_IDS" | awk 'NR>2')
-          echo "The following old deployments will be deleted:"
+          echo "The following old deployments will be deleted using xargs:"
           echo "$OLD_IDS"
 
-          # 使用健壮的 `while read` 循环
-          echo "$OLD_IDS" | while read -r ID; do
-            if [ -n "$ID" ]; then
-              # 终极修复：强制净化ID，只保留字母、数字和连字符
-              CLEAN_ID=$(echo "$ID" | sed 's/[^a-zA-Z0-9-]//g')
-              
-              # 增加调试输出，对比净化前后的ID
-              echo "---"
-              echo "Attempting to delete..."
-              echo "Original ID from list: [$ID]"
-              echo "Sanitized ID for use:  [$CLEAN_ID]"
-
-              # 使用净化后的 CLEAN_ID 执行删除操作
-              wrangler pages deployment delete "$CLEAN_ID" --project-name "$PROJECT_NAME" --force
-              echo "Successfully initiated deletion for $CLEAN_ID."
-            fi
-          done
+          # 终极修复：放弃所有shell循环，使用 xargs 来构建和执行命令，以绕过shell的解析BUG
+          # -I {} : 告诉 xargs 将每一行输入的内容，替换掉后面命令中的 {} 占位符
+          echo "$OLD_IDS" | xargs -I {} wrangler pages deployment delete {} --project-name "$PROJECT_NAME" --force
 
           echo "✅ Old deployments cleanup completed successfully."
