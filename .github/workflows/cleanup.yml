@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Final Correct Version)
+name: Auto Cleanup Old Deployments (Ultimate Sanitization Version)
 
 on:
   workflow_run:
@@ -26,28 +26,20 @@ jobs:
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # 关键修复：使用正确的命令来解析“图形化表格”
-          # 1. tr -d '\r'      : (安全措施) 删除可能存在的回车符
-          # 2. grep '^│'        : 只选择包含数据的行 (以表格竖线 │ 开头)
-          # 3. awk '{print $2}': 在数据行中，提取第二列，也就是真正的部署 ID
+          # 解析图形化表格，提取ID
           DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | grep '^│' | awk '{print $2}')
 
           if [ -z "$DEPLOY_IDS" ]; then
             echo "No deployments found or failed to fetch list. Exiting."
             exit 0
           fi
-
-          echo "All deployment IDs found:"
-          echo "$DEPLOY_IDS"
-
+          
           COUNT=$(echo "$DEPLOY_IDS" | wc -l)
-          # 我们要保留最新的1个“生产”部署和最新的1个“预览”部署，通常保留最新的2个条目即可
           if [ "$COUNT" -le 2 ]; then
             echo "Deployment count is $COUNT. No cleanup needed."
             exit 0
           fi
 
-          # awk 'NR>2' 会跳过最新的两个部署
           OLD_IDS=$(echo "$DEPLOY_IDS" | awk 'NR>2')
           echo "The following old deployments will be deleted:"
           echo "$OLD_IDS"
@@ -55,9 +47,18 @@ jobs:
           # 使用健壮的 `while read` 循环
           echo "$OLD_IDS" | while read -r ID; do
             if [ -n "$ID" ]; then
-              echo "Deleting deployment $ID..."
-              # 使用正确的删除命令
-              wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
+              # 终极修复：强制净化ID，只保留字母、数字和连字符
+              CLEAN_ID=$(echo "$ID" | sed 's/[^a-zA-Z0-9-]//g')
+              
+              # 增加调试输出，对比净化前后的ID
+              echo "---"
+              echo "Attempting to delete..."
+              echo "Original ID from list: [$ID]"
+              echo "Sanitized ID for use:  [$CLEAN_ID]"
+
+              # 使用净化后的 CLEAN_ID 执行删除操作
+              wrangler pages deployment delete "$CLEAN_ID" --project-name "$PROJECT_NAME" --force
+              echo "Successfully initiated deletion for $CLEAN_ID."
             fi
           done
 
