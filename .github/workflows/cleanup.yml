@@ -1,0 +1,20 @@
+     name: Auto Cleanup Old Deployments
+     on:
+       workflow_run: # 当其他工作流完成时触发
+         workflows: ["Sync upstream"] # 监听上游同步工作流
+         types: [completed]
+
+     jobs:
+       cleanup:
+         runs-on: ubuntu-latest
+         steps:
+           - name: Delete old deployments
+             uses: cloudflare/wrangler-action@2.0.0
+             with:
+               apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+               command: |
+                 # 保留最新 3 个部署，删除其余
+                 DEPLOYMENTS=$(cloudflare pages deployment list --project-name=libretv | grep -v 'production' | awk '{print $1}' | tail -n +4)
+                 for DEPLOY_ID in $DEPLOYMENTS; do
+                   cloudflare pages deployment delete --project-name=libretv --deployment-id=$DEPLOY_ID
+                 done
