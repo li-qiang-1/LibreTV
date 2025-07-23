@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Final Tool Version with xargs)
+name: Auto Cleanup Old Deployments (Final Solution - Direct API Call)
 
 on:
   workflow_run:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install latest wrangler and cleanup old deployments
+      - name: Cleanup old deployments via Cloudflare API
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -18,15 +18,14 @@ jobs:
         run: |
           set -e
 
-          echo "Installing the latest version of wrangler..."
+          # 我们仍然需要 wrangler 来“获取”部署列表，因为这个功能是好的
+          echo "Installing wrangler to list deployments..."
           npm install -g wrangler
-          
-          echo "Installation complete. Verifying version..."
           wrangler --version
 
-          echo "Fetching deployment list for project: $PROJECT_NAME"
+          echo "Fetching deployment list..."
           
-          # 解析命令保持不变，它能正确地从表格中提取干净的ID列表
+          # 这部分的解析逻辑是正确的，继续使用
           DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | grep '^│' | awk '{print $2}')
 
           if [ -z "$DEPLOY_IDS" ]; then
@@ -41,11 +40,28 @@ jobs:
           fi
 
           OLD_IDS=$(echo "$DEPLOY_IDS" | awk 'NR>2')
-          echo "The following old deployments will be deleted using xargs:"
+          echo "The following old deployments will be deleted via API call:"
           echo "$OLD_IDS"
 
-          # 终极修复：放弃所有shell循环，使用 xargs 来构建和执行命令，以绕过shell的解析BUG
-          # -I {} : 告诉 xargs 将每一行输入的内容，替换掉后面命令中的 {} 占位符
-          echo "$OLD_IDS" | xargs -I {} wrangler pages deployment delete {} --project-name "$PROJECT_NAME" --force
+          # 使用健壮的 `while read` 循环来处理ID
+          echo "$OLD_IDS" | while read -r ID; do
+            if [ -n "$ID" ]; then
+              echo "---"
+              echo "Deleting deployment $ID by calling Cloudflare API directly..."
+              
+              # 终极方案：使用 curl 直接调用 Cloudflare API 来删除部署
+              # -X DELETE: 指定 HTTP 请求方法为 DELETE
+              # -H "Authorization: Bearer ...": 传递 API Token 进行认证
+              # --fail: 如果HTTP响应码不是2xx（成功），则命令失败退出
+              API_URL="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT_NAME/deployments/$ID"
+              
+              curl --request DELETE "$API_URL" \
+                   --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                   --fail \
+                   --silent
+              
+              echo "Successfully sent DELETE request for deployment $ID."
+            fi
+          done
 
           echo "✅ Old deployments cleanup completed successfully."
