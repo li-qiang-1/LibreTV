@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (v3 Syntax)
+name: Auto Cleanup Old Deployments (Final Version)
 
 on:
   workflow_run:
@@ -10,24 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Cleanup old Cloudflare Pages deployments
+      - name: Install latest wrangler and cleanup old deployments
         env:
-          # 直接使用 Secrets，无需 export
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: "libretv"  # ⚠️ 请替换为您的真实 Cloudflare Pages 项目名
         run: |
-          echo "Using the environment's default wrangler version..."
-          # 验证 wrangler 版本，您会看到这是一个 v3+ 版本
+          # 脚本开始时，增加 set -e，确保任何命令失败时立即退出
+          set -e
+
+          echo "Wrangler not found. Installing the latest version..."
+          # 步骤 1: 安装最新版本的 wrangler。这是解决 `command not found` 的关键。
+          npm install -g wrangler
+          
+          echo "Installation complete. Verifying version..."
+          # 验证 wrangler 版本，这将显示一个 v3+ 的版本号
           wrangler --version
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # Wrangler v3 的新语法：
-          # 1. 'deployment' 是单数
-          # 2. 输出是表格格式，不再支持 --json
-          # 3. 我们用 awk 来解析表格，提取第一列的部署 ID
-          #    NR>2 的意思是跳过表头和分隔线
+          # 步骤 2: 使用 wrangler v3 的正确语法执行清理
+          # 使用 awk 解析 wrangler v3 的表格输出，提取第一列的部署 ID
           DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | awk 'NR>2 {print $1}')
 
           if [ -z "$DEPLOY_IDS" ]; then
@@ -53,10 +56,7 @@ jobs:
           # 循环删除旧部署
           for ID in $OLD_IDS; do
             echo "Deleting deployment $ID..."
-            # Wrangler v3 的删除语法：
-            # 1. 'deployment' 是单数
-            # 2. 部署 ID 是一个直接的参数，而不是用 --deployment-id
-            # 3. 使用 --force 来避免交互式确认
+            # 使用 wrangler v3 的删除语法
             wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
           done
 
