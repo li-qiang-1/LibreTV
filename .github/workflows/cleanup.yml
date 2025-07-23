@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments
+name: Auto Cleanup Old Deployments (v3 Syntax)
 
 on:
   workflow_run:
@@ -10,63 +10,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 步骤 1: 安装依赖并精确定位 wrangler v2 的路径
-      - name: Install dependencies and locate wrangler v2
-        id: setup # 为此步骤设置一个ID，方便后续引用其输出
-        run: |
-          # 安装 jq 工具
-          sudo apt-get update && sudo apt-get install -y jq
-
-          echo "Force uninstalling any existing global wrangler..."
-          npm uninstall -g wrangler || true
-
-          echo "Installing wrangler@2.20.0 from tgz package..."
-          # 从 .tgz 包强制安装，这是最可靠的方式
-          npm install -g https://registry.npmjs.org/wrangler/-/wrangler-2.20.0.tgz
-
-          echo "Verifying installed wrangler version:"
-          # 验证版本，确保安装成功
-          wrangler --version
-
-          echo "Finding the exact path of the wrangler executable..."
-          # 使用 'which' 命令找到可执行文件的绝对路径
-          WRANGLER_PATH=$(which wrangler)
-          echo "Wrangler v2 executable is at: $WRANGLER_PATH"
-          
-          # 将找到的路径通过 GITHUB_OUTPUT 导出，供后续步骤使用
-          echo "wrangler_path=$WRANGLER_PATH" >> $GITHUB_OUTPUT
-
-      # 步骤 2: 使用精确定位的 wrangler 清理旧部署
-      - name: Auto cleanup old deployments (keep latest 2)
+      - name: Cleanup old Cloudflare Pages deployments
         env:
+          # 直接使用 Secrets，无需 export
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: "libretv"  # ⚠️ 请替换为您的真实 Cloudflare Pages 项目名
         run: |
-          echo "Account ID: $CLOUDFLARE_ACCOUNT_ID"
-          echo "Project Name: $PROJECT_NAME"
+          echo "Using the environment's default wrangler version..."
+          # 验证 wrangler 版本，您会看到这是一个 v3+ 版本
+          wrangler --version
 
-          echo "Fetching deployment list using the exact wrangler path..."
-          # 使用上一步导出的绝对路径来执行 wrangler 命令，确保版本正确
-          DEPLOY_JSON=$("${{ steps.setup.outputs.wrangler_path }}" pages deployments list \
-            --project-name="$PROJECT_NAME" \
-            --account-id="$CLOUDFLARE_ACCOUNT_ID" \
-            --json)
+          echo "Fetching deployment list for project: $PROJECT_NAME"
+          
+          # Wrangler v3 的新语法：
+          # 1. 'deployment' 是单数
+          # 2. 输出是表格格式，不再支持 --json
+          # 3. 我们用 awk 来解析表格，提取第一列的部署 ID
+          #    NR>2 的意思是跳过表头和分隔线
+          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | awk 'NR>2 {print $1}')
 
-          # 增加健壮性检查：验证返回的是否是有效的 JSON
-          if ! echo "$DEPLOY_JSON" | jq .; then
-            echo "::error::Failed to fetch deployments. The response was not valid JSON."
-            echo "Please check your API Token permissions and project name."
-            echo "Response from Cloudflare: $DEPLOY_JSON"
-            exit 1
+          if [ -z "$DEPLOY_IDS" ]; then
+            echo "No deployments found or failed to fetch list. Exiting."
+            exit 0
           fi
 
-          # 从 JSON 中提取所有部署 ID
-          DEPLOY_IDS=$(echo "$DEPLOY_JSON" | jq -r '.[].id')
           echo "All deployment IDs found:"
           echo "$DEPLOY_IDS"
 
-          # 计算部署数量，判断是否需要清理
+          # 计算部署数量
           COUNT=$(echo "$DEPLOY_IDS" | wc -l)
           if [ "$COUNT" -le 2 ]; then
             echo "Deployment count is $COUNT. No cleanup needed."
@@ -81,12 +53,11 @@ jobs:
           # 循环删除旧部署
           for ID in $OLD_IDS; do
             echo "Deleting deployment $ID..."
-            # 同样使用绝对路径执行删除命令
-            "${{ steps.setup.outputs.wrangler_path }}" pages deployments delete \
-              --project-name="$PROJECT_NAME" \
-              --account-id="$CLOUDFLARE_ACCOUNT_ID" \
-              --deployment-id="$ID" \
-              --yes
+            # Wrangler v3 的删除语法：
+            # 1. 'deployment' 是单数
+            # 2. 部署 ID 是一个直接的参数，而不是用 --deployment-id
+            # 3. 使用 --force 来避免交互式确认
+            wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
           done
 
           echo "✅ Old deployments cleanup completed successfully."
