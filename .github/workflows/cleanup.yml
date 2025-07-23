@@ -1,20 +1,31 @@
-     name: Auto Cleanup Old Deployments
-     on:
-       workflow_run: # 当其他工作流完成时触发
-         workflows: ["Sync upstream"] # 监听上游同步工作流
-         types: [completed]
+name: Auto Cleanup Old Deployments
+on:
+  workflow_run:
+    workflows: ["Sync upstream"]  # 上游同步完成后自动触发清理
+    types: [completed]
 
-     jobs:
-       cleanup:
-         runs-on: ubuntu-latest
-         steps:
-           - name: Delete old deployments
-             uses: cloudflare/wrangler-action@2.0.0
-             with:
-               apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-               command: |
-                 # 保留最新 3 个部署，删除其余
-                 DEPLOYMENTS=$(cloudflare pages deployment list --project-name=libretv | grep -v 'production' | awk '{print $1}' | tail -n +4)
-                 for DEPLOY_ID in $DEPLOYMENTS; do
-                   cloudflare pages deployment delete --project-name=libretv --deployment-id=$DEPLOY_ID
-                 done
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 安装 jq 工具（解析JSON格式的部署列表）
+        run: sudo apt-get install -y jq  # 新增步骤：安装必要工具
+        
+      - name: 自动删除旧部署（仅保留最新2个）
+        uses: cloudflare/wrangler-action@2.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: |
+            # 核心逻辑：获取所有部署ID（按时间倒序，最新的在前），跳过前2个，删除剩余所有
+            DEPLOY_IDS=$(cloudflare pages deployment list --project-name=libretv --format=json | jq -r '.[].id' | tail -n +3)
+            
+            # 遍历并删除旧部署ID
+            if [ -n "$DEPLOY_IDS" ]; then
+              echo "开始删除旧部署：$DEPLOY_IDS"
+              for ID in $DEPLOY_IDS; do
+                cloudflare pages deployment delete --project-name=libretv --deployment-id=$ID --confirm
+              done
+              echo "旧部署清理完成！"
+            else
+              echo "没有需要清理的旧部署（仅保留了最新2个）"
+            fi
