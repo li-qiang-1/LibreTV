@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Carriage Return Fix)
+name: Auto Cleanup Old Deployments (Final Adaptive Version)
 
 on:
   workflow_run:
@@ -26,8 +26,11 @@ jobs:
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # 关键修复：在 awk 处理前，使用 tr -d '\r' 清除所有破坏性的回车符。
-          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | awk 'NR>2 {print $1}')
+          # 终极修复：适配 wrangler 最新的图形化表格输出
+          # 1. tr -d '\r'    : (安全措施) 删除可能存在的回车符
+          # 2. grep '^│'      : 只选择包含数据的行 (以 │ 开头)
+          # 3. awk '{print $2}': 在数据行中，提取第二列，也就是真正的部署 ID
+          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | grep '^│' | awk '{print $2}')
 
           if [ -z "$DEPLOY_IDS" ]; then
             echo "No deployments found or failed to fetch list. Exiting."
@@ -35,7 +38,6 @@ jobs:
           fi
 
           echo "All deployment IDs found:"
-          # 打印ID进行验证，这次应该能看到正常的ID列表
           echo "$DEPLOY_IDS"
 
           COUNT=$(echo "$DEPLOY_IDS" | wc -l)
@@ -49,7 +51,6 @@ jobs:
           echo "$OLD_IDS"
 
           for ID in $OLD_IDS; do
-            # 由于ID已经被清理干净，这里的命令将可以被正确解析
             echo "Deleting deployment $ID..."
             wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
           done
