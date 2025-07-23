@@ -1,36 +1,45 @@
 name: Auto Cleanup Old Deployments
 on:
   workflow_run:
-    workflows: ["Upstream Sync"]  # 同步工作流名称（必须正确）
+    workflows: ["Upstream Sync"]  # 同步工作流名称（必须与仓库中一致）
     types: [completed]
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: 安装必要工具
+      - name: 安装依赖（jq + 稳定版 wrangler）
         run: |
           sudo apt-get install -y jq
-          npm install -g wrangler@3.57.0
+          npm install -g wrangler@3.57.0  # 固定版本，避免语法变动
 
-      - name: 强制删除旧部署（仅保留最新2个）
+      - name: 自动清理旧部署（仅保留最新2个）
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PROJECT_NAME: "libretv"  # ← 必须替换为你的项目名！！！
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # 必须正确设置
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # 必须正确设置
+          PROJECT_NAME: "libretv"  # ← 替换为你的实际项目名！！！
         run: |
-          # 1. 获取所有部署 ID（按时间倒序，最新的在前）
+          # 1. 调试：输出环境变量（确认是否正确）
+          echo "账户 ID: $CLOUDFLARE_ACCOUNT_ID"
+          echo "项目名: $PROJECT_NAME"
+
+          # 2. 获取部署列表（正确命令）
           echo "获取部署列表..."
-          DEPLOY_IDS=$(wrangler pages deployments list $PROJECT_NAME --account-id=$CLOUDFLARE_ACCOUNT_ID --json | jq -r '.[].id')
+          DEPLOY_JSON=$(wrangler pages deployments list --account-id=$CLOUDFLARE_ACCOUNT_ID --json $PROJECT_NAME)
+          echo "部署列表 JSON: $DEPLOY_JSON"  # 调试：查看返回的 JSON
+
+          # 3. 解析部署 ID（按时间倒序，取前2个之后的旧部署）
+          DEPLOY_IDS=$(echo "$DEPLOY_JSON" | jq -r '.[].id')  # 提取所有部署 ID
           echo "所有部署 ID: $DEPLOY_IDS"
 
-          # 2. 仅保留最新的2个，删除其余（如果部署数量 > 2）
+          # 4. 删除旧部署（仅保留最新2个）
           if [ $(echo "$DEPLOY_IDS" | wc -w) -gt 2 ]; then
             OLD_IDS=$(echo "$DEPLOY_IDS" | awk 'NR>2')  # 跳过前2个，取后面的旧部署
             echo "删除旧部署: $OLD_IDS"
             for ID in $OLD_IDS; do
-              wrangler pages deployments delete $PROJECT_NAME --account-id=$CLOUDFLARE_ACCOUNT_ID --deployment-id=$ID --yes
+              wrangler pages deployments delete --account-id=$CLOUDFLARE_ACCOUNT_ID --deployment-id=$ID $PROJECT_NAME --yes
             done
+            echo "旧部署清理完成！"
           else
             echo "部署数量 ≤ 2，无需清理"
           fi
