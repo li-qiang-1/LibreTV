@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Final Version)
+name: Auto Cleanup Old Deployments (Carriage Return Fix)
 
 on:
   workflow_run:
@@ -16,22 +16,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: "libretv"  # ⚠️ 请替换为您的真实 Cloudflare Pages 项目名
         run: |
-          # 脚本开始时，增加 set -e，确保任何命令失败时立即退出
           set -e
 
-          echo "Wrangler not found. Installing the latest version..."
-          # 步骤 1: 安装最新版本的 wrangler。这是解决 `command not found` 的关键。
+          echo "Installing the latest version of wrangler..."
           npm install -g wrangler
           
           echo "Installation complete. Verifying version..."
-          # 验证 wrangler 版本，这将显示一个 v3+ 的版本号
           wrangler --version
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # 步骤 2: 使用 wrangler v3 的正确语法执行清理
-          # 使用 awk 解析 wrangler v3 的表格输出，提取第一列的部署 ID
-          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | awk 'NR>2 {print $1}')
+          # 关键修复：在 awk 处理前，使用 tr -d '\r' 清除所有破坏性的回车符。
+          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | awk 'NR>2 {print $1}')
 
           if [ -z "$DEPLOY_IDS" ]; then
             echo "No deployments found or failed to fetch list. Exiting."
@@ -39,24 +35,22 @@ jobs:
           fi
 
           echo "All deployment IDs found:"
+          # 打印ID进行验证，这次应该能看到正常的ID列表
           echo "$DEPLOY_IDS"
 
-          # 计算部署数量
           COUNT=$(echo "$DEPLOY_IDS" | wc -l)
           if [ "$COUNT" -le 2 ]; then
             echo "Deployment count is $COUNT. No cleanup needed."
             exit 0
           fi
 
-          # 提取需要删除的旧部署 ID（跳过最新的2个）
           OLD_IDS=$(echo "$DEPLOY_IDS" | awk 'NR>2')
           echo "The following old deployments will be deleted:"
           echo "$OLD_IDS"
 
-          # 循环删除旧部署
           for ID in $OLD_IDS; do
+            # 由于ID已经被清理干净，这里的命令将可以被正确解析
             echo "Deleting deployment $ID..."
-            # 使用 wrangler v3 的删除语法
             wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
           done
 
