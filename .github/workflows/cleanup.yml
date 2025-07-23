@@ -1,4 +1,4 @@
-name: Auto Cleanup Old Deployments (Final Adaptive Version)
+name: Auto Cleanup Old Deployments (Ultimate Robust Version)
 
 on:
   workflow_run:
@@ -26,11 +26,9 @@ jobs:
 
           echo "Fetching deployment list for project: $PROJECT_NAME"
           
-          # 终极修复：适配 wrangler 最新的图形化表格输出
-          # 1. tr -d '\r'    : (安全措施) 删除可能存在的回车符
-          # 2. grep '^│'      : 只选择包含数据的行 (以 │ 开头)
-          # 3. awk '{print $2}': 在数据行中，提取第二列，也就是真正的部署 ID
-          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | grep '^│' | awk '{print $2}')
+          # 改进 #1: 简化解析逻辑以适配最新的纯文本输出
+          # 使用 awk 'NR>1' 来跳过第一行标题，获取所有ID
+          DEPLOY_IDS=$(wrangler pages deployment list --project-name "$PROJECT_NAME" | tr -d '\r' | awk 'NR>1')
 
           if [ -z "$DEPLOY_IDS" ]; then
             echo "No deployments found or failed to fetch list. Exiting."
@@ -50,9 +48,13 @@ jobs:
           echo "The following old deployments will be deleted:"
           echo "$OLD_IDS"
 
-          for ID in $OLD_IDS; do
-            echo "Deleting deployment $ID..."
-            wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
+          # 改进 #2: 使用更健壮、更安全的 `while read` 循环，彻底取代不稳定的 `for` 循环
+          echo "$OLD_IDS" | while read -r ID; do
+            # 确保ID不为空
+            if [ -n "$ID" ]; then
+              echo "Deleting deployment $ID..."
+              wrangler pages deployment delete "$ID" --project-name "$PROJECT_NAME" --force
+            fi
           done
 
           echo "✅ Old deployments cleanup completed successfully."
